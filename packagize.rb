@@ -1,4 +1,12 @@
-require 'pry'
+#!/usr/bin/env ruby
+
+require 'FileUtils.rb'
+
+if RUBY_VERSION.to_i < 2
+   puts "Your interpreter version is #{RUBY_VERSION}. This tool requires ruby
+   2.0.0 or higher to run."
+   exit
+end
 
 class Package
    include FileUtils
@@ -12,7 +20,7 @@ class Package
       if not pack.is_a? Package
          raise TypeError
       end
-      @subpackages[pack.name] = pack if pack.name.match /^[a-zA-Z\d]+$/
+      @subpackages[pack.name] = pack if pack.name =~ /^[a-zA-Z\d]+$/
    end
    def add_file file
       @files.push file
@@ -23,13 +31,11 @@ class Package
    end
    def build_directory root
       root = root + "/" if not root.match(/.*\/$/)
-      # puts "root: #{root}, wd: #{FileUtils.getwd}"
-      # binding.pry
       Dir.mkdir @name if not File.exist? @name
       cd @name
       @files.each do |file|
          puts "moving file: "+file+" to "+File.absolute_path(".")
-         cp file, "." 
+         cp file, "." rescue ArgumentError # raised if files are identical
       end
       @subpackages.each_value do |p|
          success = p.build_directory @name
@@ -41,21 +47,33 @@ class Package
 end
 
 class ClassCollector
+
    include FileUtils
+
    attr_reader :files
+
+   ## constants
+
+   # this tries to match the more common java class headers. Doesn't match every
+   # possible way, I supposed. Especially nested generics can't be checked with
+   # a regex
    CLS_DECL_REGEX =
-      /((public|protected|private|abstract|static|final|strictfp)\s+)*(class|interface)\s+[A-Z]\w*\s*(<[A-Z](\sextends [A-Z]\w*)?(, [A-Z](extends [A-Z]\w*)?)*>)?(\s+(extends|implements)\s+[A-Z]\w*(\s*,\s*[A-Z]\w*)*)?.*\s*{\s*$/ 
+      /((public|protected|private|abstract|static|final|strictfp)\s+)*(class|interface)\s+[A-Z]\w*\s*(<[A-Z](\sextends [A-Z]\w*)?(, [A-Z](extends [A-Z]\w*)?)*>)?(\s+(extends|implements)\s+[A-Z]\w*(\s*,\s*[A-Z]\w*)*)?.*\s*\{\s*$/ # note that { must be escaped in 1.8
+   # this tries to match a package declaration
    PKG_DCL_REGEX = /\s*package\s+\w+(\.\w+)*;\s*$/
+   # for extracting the actual package path without 'package' and ';'
    EXTR_PKG = [/\s*package\s+|;\s*/,""]
-   def initialize root
+
+   def initialize root, ext=".java"
       @root = root
-      @files = Hash.new
+      @files = Hash.new # files found
+      @extension = ext
    end
    def collect
       collect_in_dir File.absolute_path @root
    end
    def parsePkg fname
-      if File.extname(fname) == ".java"
+      if File.extname(fname) == @extension
          lines = IO.readlines fname
          i = 0
          while i < lines.size and not lines[i].match CLS_DECL_REGEX
@@ -70,22 +88,21 @@ class ClassCollector
    private
    def collect_in_dir directory
       if File.directory? directory
-         cd directory
          files = Dir.entries directory
-         files.reject! {|d| d.match /^\.{1,2}$/}
+         cd directory
+         files.reject! {|d| d.match /^\.{1,2}$/} # ignore parent and self links
          files.each do |fname|
             if File.file? fname # if no directory
-               # puts "file: #{fname}"
+               puts "file found: #{fname}"
                pkg_info = parsePkg fname
                @files[File.absolute_path fname] = pkg_info if pkg_info
             else  
-               # puts "dir: #{fname}"
-               dirs = Dir.entries fname
+               dirs = Dir.entries getwd
                dirs.reject! {|d| d.match /^\.{1,2}$/}
-               # puts dirs
                dirs.each do |entry|
                   collect_in_dir entry
                end
+            cd ".."
             end
          end
       end
