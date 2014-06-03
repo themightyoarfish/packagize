@@ -12,10 +12,14 @@ class Package
       if not pack.is_a? Package
          raise TypeError
       end
-      @subpackages[pack.name] = pack if pack.name.match /^[a-z\d]+$/
+      @subpackages[pack.name] = pack if pack.name.match /^[a-zA-Z\d]+$/
    end
    def add_file file
       @files.push file
+      puts "#{file} added to package #{@name}"
+   end
+   def to_s
+      @name
    end
    def build_directory root
       root = root + "/" if not root.match(/.*\/$/)
@@ -95,15 +99,15 @@ if __FILE__ == $0
    c.files.each do |k,v|
       parent = pkg_root
       while not v.empty?
-         subpkg = Package.new v.split(".").first
-         parent.add_subpackage subpkg unless parent.subpackages.has_key?  subpkg.name
+         subpkg_name = v.split(".").first
+         subpkg = (parent.subpackages[subpkg_name] or Package.new subpkg_name)
+         parent.add_subpackage subpkg unless parent.subpackages.has_key? subpkg.name
          parent = subpkg
          v.slice! subpkg.name
          if v.start_with? "."
             v = v[1,v.length]
          end
       end
-      puts "adding file #{k} to package #{subpkg.name}"
       subpkg.add_file k
    end
    pkg_root.build_directory "."
