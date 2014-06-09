@@ -1,10 +1,9 @@
 #!/usr/bin/env ruby
+require 'pry'
 
-require 'FileUtils.rb'
-
-if RUBY_VERSION.to_i < 2
+if RUBY_VERSION.to_f < 1.9
    puts "Your interpreter version is #{RUBY_VERSION}. This tool requires ruby
-   2.0.0 or higher to run."
+   1.9.* or higher to run."
    exit
 end
 
@@ -20,36 +19,43 @@ class Package
       if not pack.is_a? Package
          raise TypeError
       end
-      @subpackages[pack.name] = pack if pack.name =~ /^[a-zA-Z\d]+$/
+      if pack.name =~ /^[a-zA-Z\d]+$/
+         @subpackages[pack.name] = pack 
+      else puts "Invalid pacakge name #{pack.name}. skipping."
+      end
    end
    def add_file file
       @files.push file
-      puts "#{file} added to package #{@name}"
+      puts "#{File.basename file} added to package #{@name}"
    end
    def to_s
       @name
    end
    def build_directory root
-      root = root + "/" if not root.match(/.*\/$/)
-      Dir.mkdir @name if not File.exist? @name
-      cd @name
+      success = true
+      root += "/" if not root.end_with? "/" # add backslash for later concatenation
+      Dir.mkdir(root + @name) if not File.exist? root + @name
       @files.each do |file|
-         puts "moving file: "+file+" to "+File.absolute_path(".")
-         cp file, "." rescue ArgumentError # raised if files are identical
+         puts "moving file #{File.basename file} to #{File.absolute_path '.'}"
+         begin
+            cp file, root + @name 
+         rescue ArgumentError => e # raised if files are identical
+               puts "Error. Can't copy #{File.basename file}. Source and destination are identical."
+         end
       end
       @subpackages.each_value do |p|
-         success = p.build_directory @name
-         return false if not success
-         cd ".."
+         success = p.build_directory root + @name
       end
-      true
+      if success
+         return true
+      else
+         return false
+      end
    end
 end
 
 class ClassCollector
-
    include FileUtils
-
    attr_reader :files
 
    ## constants
@@ -64,45 +70,43 @@ class ClassCollector
    # for extracting the actual package path without 'package' and ';'
    EXTR_PKG = [/\s*package\s+|;\s*/,""]
 
-   def initialize root, ext=".java"
-      @root = root
+   def initialize root=".", ext=".java"
+      @root = File.absolute_path root
       @files = Hash.new # files found
       @extension = ext
    end
    def collect
-      collect_in_dir File.absolute_path @root
+      collect_in_dir  @root
    end
    def parsePkg fname
       if File.extname(fname) == @extension
          lines = IO.readlines fname
-         i = 0
-         while i < lines.size and not lines[i].match CLS_DECL_REGEX
-            if lines[i].match PKG_DCL_REGEX
-               pkg_name = lines[i].gsub *EXTR_PKG
+         lines.each do |l|
+            break if l =~ CLS_DECL_REGEX
+            if l =~ PKG_DCL_REGEX
+               pkg_name = l.gsub *EXTR_PKG
+               return pkg_name
             end
-            i += 1
          end
-         pkg_name || "" # if we found nothing -> default package
+         puts "Warning: #{File.basename fname} has no or no valid package
+            declaration. Adding to default pacakge."
+         "" # if we found nothing -> default package
       end
    end
+
    private
    def collect_in_dir directory
+      directory += "/" if not directory.end_with? "/"
       if File.directory? directory
          files = Dir.entries directory
-         cd directory
          files.reject! {|d| d.match /^\.{1,2}$/} # ignore parent and self links
+         files.map! { |f| directory + f }
          files.each do |fname|
             if File.file? fname # if no directory
-               puts "file found: #{fname}"
                pkg_info = parsePkg fname
-               @files[File.absolute_path fname] = pkg_info if pkg_info
+               @files[fname] = pkg_info if pkg_info
             else  
-               dirs = Dir.entries getwd
-               dirs.reject! {|d| d.match /^\.{1,2}$/}
-               dirs.each do |entry|
-                  collect_in_dir entry
-               end
-            cd ".."
+               collect_in_dir fname
             end
          end
       end
@@ -110,22 +114,27 @@ class ClassCollector
 end
 
 if __FILE__ == $0
-   c = ClassCollector.new "."
+   c = ClassCollector.new ARGV[0]
    c.collect
    pkg_root = Package.new "src"
    c.files.each do |k,v|
       parent = pkg_root
-      while not v.empty?
-         subpkg_name = v.split(".").first
-         subpkg = (parent.subpackages[subpkg_name] or Package.new subpkg_name)
-         parent.add_subpackage subpkg unless parent.subpackages.has_key? subpkg.name
-         parent = subpkg
-         v.slice! subpkg.name
-         if v.start_with? "."
-            v = v[1,v.length]
+      if v.empty?
+         parent.add_file k
+      else
+         while not v.empty?
+            subpkg_name = v.split(".").first
+            subpkg = (parent.subpackages[subpkg_name] or Package.new subpkg_name)
+            parent.add_subpackage subpkg unless parent.subpackages.has_key? subpkg.name
+            parent = subpkg
+            v.slice! subpkg.name
+            if v.start_with? "."
+               v = v[1,v.length]
+            end
          end
+         subpkg.add_file k
       end
-      subpkg.add_file k
    end
-   pkg_root.build_directory "."
+   success = pkg_root.build_directory File.absolute_path ARGV[1]
+   puts success ? "Done." : "There were errors."
 end
