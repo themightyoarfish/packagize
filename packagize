@@ -9,14 +9,9 @@ if RUBY_VERSION.to_f < 1.9
 end
 
 module JTools
-   ## constants
-
-   # this tries to match the more common java class headers. Doesn't match every
-   # possible way, I suppose. Especially nested generics can't be checked with
-   # a regex
+   # this tries to match the declaration of a class, interface or enum. If a
+   # line matches, we know that no package declaration can follow.
    CLS_DECL_REGEX = /.*(class|interface|enum).*/
-   # CLS_DECL_REGEX =
-      # /((public|protected|private|abstract|static|final|strictfp)\s+)*(class|interface)\s+[A-Z]\w*\s*(<[A-Z](\sextends [A-Z]\w*)?(, [A-Z](extends [A-Z]\w*)?)*>)?(\s+(extends|implements)\s+[A-Z]\w*(\s*,\s*[A-Z]\w*)*)?.*\s*\{\s*$/ # note that { must be escaped in 1.8
    # this tries to match a package declaration
    PKG_DCL_REGEX = /\s*package\s+\w+(\.\w+)*;\s*$/
    # for extracting the actual package path without 'package' and ';' by use of
@@ -33,6 +28,7 @@ end
    This class is represents a (java) package; basically just a collection of files
    and subpackages. 
 =end
+
 class Package
    include FileUtils # for cp
    attr_reader :name, :subpackages, :files
@@ -61,6 +57,7 @@ class Package
          puts "#{File.basename file} added to package #{@name}"
       end
    end
+   # string representation of this package
    def to_s
       "#{@name} => Files: \n\t#{@files.join "\n\t"}\n Subpackages:
       \t#{@subpackages.keys.join "\n\t"}"
@@ -75,7 +72,7 @@ class Package
          puts "moving file #{File.basename file} to #{root + @name}"
          begin
             cp file, root + @name 
-         rescue ArgumentError => e # raised if files are identical
+         rescue ArgumentError # raised if files are identical
             puts "Warning: Can't copy #{File.basename file}. Source and destination are identical."
          end
       end
@@ -112,8 +109,8 @@ class ClassCollector
                return pkg_name
             end
          end
-         puts "Warning: #{File.basename fname} has no or no valid package
-            declaration. Adding to default package."
+         puts "Warning: #{File.basename fname} has no or no valid package" +
+         " declaration. Adding to default package."
          "" # if we found nothing -> default package
       else
          puts "Error. #{fname} is no #{@extension} file."
@@ -148,41 +145,65 @@ end
 
 if __FILE__ == $0
    recursive = false
-   recursive = true if ARGV.index "-r"
+   if ARGV.index "-r"
+      recursive = true 
+      ARGV.delete_at ARGV.index "-r"
+   end
    search_dir = "."
    search_flag_pos = ARGV.index "-s"
+   # binding.pry
    if search_flag_pos
       search_dir = ARGV[search_flag_pos + 1]
-      puts "Error. Path must follow -s flag." if not search_dir
+      if not search_dir
+         puts "Error. Path must follow -s flag." 
+         exit
+      elsif not File.directory? search_dir
+         puts "Error. #{search_dir} is no directory."
+         exit
+      else 
+         ARGV.delete_at search_flag_pos + 1
+         ARGV.delete_at search_flag_pos
+      end
    end
    dest_dir = "."
    dest_flag_pos = ARGV.index "-d"
    if dest_flag_pos
       dest_dir = ARGV[dest_flag_pos + 1]
-      puts "Error. Path must follow -d flag." if not dest_dir
-   end
-   c = ClassCollector.new search_dir
-   c.collect recursive
-   pkg_root = Package.new "src"
-   c.files.each do |k,v|
-      parent = pkg_root
-      if v.empty?
-         parent.add_file k
-      else
-         while not v.empty?
-            subpkg_name = v.split(".").first
-            subpkg = (parent.subpackages[subpkg_name] or Package.new subpkg_name)
-            parent.add_subpackage subpkg unless parent.subpackages.has_key? subpkg.name
-            parent = subpkg
-            v.slice! subpkg.name
-            if v.start_with? "."
-               v = v[1,v.length]
-            end
-         end
-         subpkg.add_file k
+      if not dest_dir
+         puts "Error. Path must follow -d flag." 
+         exit
+      elsif not File.directory? dest_dir
+         puts "Error. #{dest_dir} is no directory."
+         exit
+      else 
+         ARGV.delete_at dest_flag_pos + 1
+         ARGV.delete_at dest_flag_pos
       end
    end
-   binding.pry
-   success = pkg_root.build_directory File.absolute_path dest_dir
-   puts success ? "Done." : "There were errors."
+   if ARGV.empty?
+      c = ClassCollector.new search_dir
+      c.collect recursive
+      pkg_root = Package.new "src"
+      c.files.each do |k,v|
+         parent = pkg_root
+         if v.empty?
+            parent.add_file k
+         else
+            while not v.empty?
+               subpkg_name = v.split(".").first
+               subpkg = (parent.subpackages[subpkg_name] or Package.new subpkg_name)
+               parent.add_subpackage subpkg unless parent.subpackages.has_key? subpkg.name
+               parent = subpkg
+               v.slice! subpkg.name
+               if v.start_with? "."
+                  v = v[1,v.length]
+               end
+            end
+            subpkg.add_file k
+         end
+      end
+      success = pkg_root.build_directory File.absolute_path dest_dir
+      puts success ? "Done." : "There were errors."
+   else puts "Excess arguments: #{ARGV.join ', '}. Exiting."
+   end
 end
