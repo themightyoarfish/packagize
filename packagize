@@ -1,6 +1,4 @@
 #!/usr/bin/env ruby
-# require "FileUtils.rb"
-require "pry"
 
 if RUBY_VERSION.to_f < 1.9
    puts "Your interpreter version is #{RUBY_VERSION}. This tool requires ruby
@@ -28,7 +26,6 @@ end
    This class is represents a (java) package; basically just a collection of files
    and subpackages. 
 =end
-
 class Package
    include FileUtils # for cp
    attr_reader :name, :subpackages, :files
@@ -87,17 +84,25 @@ class Package
    end
 end
 
+=begin
+   Instances of this class aggregate files (java by default) in themselves and
+   search a given path to accomplish this.
+=end
 class ClassCollector
    include FileUtils
    attr_reader :files
+   # if no path given, search ".". Not sure if works on Windows
    def initialize root=".", ext=".java"
       @root = File.absolute_path root
       @files = Hash.new # files found
       @extension = ext
    end
+   # start search in @root. 
    def collect recursive=true
       collect_in_dir  @root, recursive
    end
+   # Parse the package name from a package declaration (only applies to java
+   # files)
    def parsePkg fname
       if File.extname(fname) == @extension
          lines = IO.readlines fname
@@ -144,6 +149,7 @@ class ClassCollector
 end
 
 if __FILE__ == $0
+   # parse cl arguments and delete if found -> ARGV must be empty if correct
    recursive = false
    if ARGV.index "-r"
       recursive = true 
@@ -151,7 +157,6 @@ if __FILE__ == $0
    end
    search_dir = "."
    search_flag_pos = ARGV.index "-s"
-   # binding.pry
    if search_flag_pos
       search_dir = ARGV[search_flag_pos + 1]
       if not search_dir
