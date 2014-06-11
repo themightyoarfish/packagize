@@ -1,4 +1,5 @@
 #!/usr/bin/env ruby
+require 'FileUtils'
 
 if RUBY_VERSION.to_f < 1.9
    puts "Your interpreter version is #{RUBY_VERSION}. This tool requires ruby
@@ -28,11 +29,13 @@ end
 =end
 class Package
    include FileUtils # for cp
-   attr_reader :name, :subpackages, :files
-   def initialize name
+   attr_reader :name, :subpackages, :files, :filecount
+   def initialize name, verbose = true
       @name = name
+      @verbose = verbose
       @subpackages = Hash.new
       @files = Array.new
+      @filecount = 0
    end
    # add a Package object as a subpackage of this package
    def add_subpackage pack
@@ -41,6 +44,7 @@ class Package
       end
       if pack.name =~ JTools::PACKAGE_NAME
          @subpackages[pack.name] = pack # map name to package object
+         @filecount += pack.filecount
       else puts "Invalid pacakge name #{pack.name}. skipping."
       end
    end
@@ -51,7 +55,8 @@ class Package
          raise ArgumentError
       else
          @files.push file
-         puts "#{File.basename file} added to package #{@name}"
+         @filecount += 1
+         puts "#{File.basename file} added to package #{@name}" if @verbose
       end
    end
    # string representation of this package
@@ -62,11 +67,14 @@ class Package
    # build the physical package structure on the file system with all
    # subpackages and files correctly arranged
    def build_directory root
-      success = true
       root += "/" if not root.end_with? "/" # add backslash for later concatenation
+      if not caller[0] =~ /.*build_directory.*/
+         puts "Building in #{root+@name}."
+         puts "Warning. No files in this package tree." if @filecount == 0
+      end
       Dir.mkdir(root + @name) if not File.exist? root + @name # make root dir if not already present
       @files.each do |file|
-         puts "moving file #{File.basename file} to #{root + @name}"
+         puts "Copying file #{File.basename file} to #{root + @name}." if @verbose
          begin
             cp file, root + @name 
          rescue ArgumentError # raised if files are identical
@@ -74,12 +82,7 @@ class Package
          end
       end
       @subpackages.each_value do |p| # recursively build directory tree
-         success = p.build_directory root + @name
-      end
-      if success
-         return true
-      else
-         return false
+         p.build_directory root + @name
       end
    end
 end
@@ -92,13 +95,14 @@ class ClassCollector
    include FileUtils
    attr_reader :files
    # if no path given, search ".". Not sure if works on Windows
-   def initialize root=".", ext=".java"
+   def initialize root=".", verbose = true, ext=".java"
       @root = File.absolute_path root
+      @verbose = verbose
       @files = Hash.new # files found
       @extension = ext
    end
    # start search in @root. 
-   def collect recursive=true
+   def collect recursive = true
       collect_in_dir  @root, recursive
    end
    # Parse the package name from a package declaration (only applies to java
@@ -115,18 +119,18 @@ class ClassCollector
             end
          end
          puts "Warning: #{File.basename fname} has no or no valid package" +
-         " declaration. Adding to default package."
+         " declaration. Adding to default package." if @verbose
          "" # if we found nothing -> default package
       else
-         puts "Error. #{fname} is no #{@extension} file."
+         raise ArgumentError.new "Error. #{fname} is no #{@extension} file."
       end
    end
 
    private
    # collect all files with the given extension in a directory
-   def collect_in_dir directory, recursive=true
+   def collect_in_dir directory, recursive = true
       if not File.readable? directory
-         puts "#{directory} not readable. Skipping."
+         puts "#{directory} not readable. Skipping." if @verbose
       else
          directory += "/" if not directory.end_with? "/"
          if File.directory? directory
@@ -134,10 +138,10 @@ class ClassCollector
             files.reject! {|d| d.match /^\.{1,2}$/} # ignore parent and self links
             files.map! { |f| directory + f }
             files.each do |fname|
-               if File.directory? fname and recursive
+               if File.directory?(fname) and recursive
                   collect_in_dir fname
                elsif not File.readable? fname
-                  puts "#{fname} not readable.Skipping."
+                  puts "#{fname} not readable.Skipping." if @verbose
                elsif File.file? fname and File.extname(fname) == @extension # if no directory
                   pkg_info = parsePkg fname
                   @files[fname] = pkg_info if pkg_info
@@ -148,12 +152,19 @@ class ClassCollector
    end
 end
 
+def print_usage 
+   puts "Usage: packagize [-h] [-s source_dir] [-d dest_dir] [-v] [-r]"
+   puts "\tSource and destination default to the current working directory."
+   puts "\t-r search directory and all subdirectories"
+   puts "\t-v display verbose output."
+   puts "\t-h display this text."
+end
+
 if __FILE__ == $0
    # parse cl arguments and delete if found -> ARGV must be empty if correct
-   recursive = false
-   if ARGV.index "-r"
-      recursive = true 
-      ARGV.delete_at ARGV.index "-r"
+   if ARGV.index "-h"
+      print_usage
+      exit
    end
    search_dir = "."
    search_flag_pos = ARGV.index "-s"
@@ -185,10 +196,20 @@ if __FILE__ == $0
          ARGV.delete_at dest_flag_pos
       end
    end
+   recursive = false
+   if ARGV.index "-r"
+      recursive = true 
+      ARGV.delete_at ARGV.index "-r"
+   end
+   verbose = false
+   if ARGV.index "-v"
+      verbose = true
+      ARGV.delete_at ARGV.index "-v"
+   end
    if ARGV.empty?
-      c = ClassCollector.new search_dir
+      c = ClassCollector.new search_dir, verbose
       c.collect recursive
-      pkg_root = Package.new "src"
+      pkg_root = Package.new "src", verbose
       c.files.each do |k,v|
          parent = pkg_root
          if v.empty?
@@ -196,7 +217,8 @@ if __FILE__ == $0
          else
             while not v.empty?
                subpkg_name = v.split(".").first
-               subpkg = (parent.subpackages[subpkg_name] or Package.new subpkg_name)
+               subpkg = (parent.subpackages[subpkg_name] or
+                         Package.new(subpkg_name, verbose))
                parent.add_subpackage subpkg unless parent.subpackages.has_key? subpkg.name
                parent = subpkg
                v.slice! subpkg.name
@@ -207,8 +229,7 @@ if __FILE__ == $0
             subpkg.add_file k
          end
       end
-      success = pkg_root.build_directory File.absolute_path dest_dir
-      puts success ? "Done." : "There were errors."
+      pkg_root.build_directory File.absolute_path dest_dir
    else puts "Excess arguments: #{ARGV.join ', '}. Exiting."
    end
 end
