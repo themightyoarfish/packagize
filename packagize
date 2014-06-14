@@ -29,13 +29,19 @@ end
 =end
 class Package
    include FileUtils # for cp
-   attr_reader :name, :subpackages, :files, :filecount
+   attr_reader :name, :subpackages, :files
    def initialize name, verbose = true
       @name = name
       @verbose = verbose
       @subpackages = Hash.new
       @files = Array.new
-      @filecount = 0
+   end
+   def filecount
+      count = @files.size
+      subpackages.each_value do |pack|
+         count += pack.filecount
+      end
+      count
    end
    # add a Package object as a subpackage of this package
    def add_subpackage pack
@@ -44,7 +50,6 @@ class Package
       end
       if pack.name =~ JTools::PACKAGE_NAME
          @subpackages[pack.name] = pack # map name to package object
-         @filecount += pack.filecount
       else puts "Invalid pacakge name #{pack.name}. skipping."
       end
    end
@@ -55,7 +60,6 @@ class Package
          raise ArgumentError
       else
          @files.push file
-         @filecount += 1
          puts "#{File.basename file} added to package #{@name}" if @verbose
       end
    end
@@ -70,7 +74,7 @@ class Package
       root += "/" if not root.end_with? "/" # add backslash for later concatenation
       if not caller[0] =~ /.*build_directory.*/
          puts "Building in #{root+@name}."
-         puts "Warning. No files in this package tree." if @filecount == 0
+         puts "Warning. No files in this package tree." if filecount == 0
       end
       Dir.mkdir(root + @name) if not File.exist? root + @name # make root dir if not already present
       @files.each do |file|
