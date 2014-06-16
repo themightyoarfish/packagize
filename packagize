@@ -19,7 +19,7 @@ module JTools
    EXTR_PKG = /\s*package\s+|;\s*/
    # This tries to match allowed package names, which must not begin with an
    # uppercase letter or number
-   PACKAGE_NAME = /^([a-z]|(_\d*))+$/
+   PACKAGE_NAME = /^([a-z]\d*|(_\d*))+$/ # somehwat liberal naming standards
 
 end
 
@@ -115,11 +115,15 @@ class ClassCollector
       if File.extname(fname) == @extension
          lines = IO.readlines fname
          lines.each do |l|
-            break if l =~ JTools::CLS_DECL_REGEX # stop if we find the class header
-            next if l.strip.start_with? "/*", "*", "//"
-            if l =~ JTools::PKG_DCL_REGEX # if package declaration found
-               pkg_name = l.gsub JTools::EXTR_PKG, "" # extract path
-               return pkg_name
+            begin
+               break if l =~ JTools::CLS_DECL_REGEX # stop if we find the class header
+               next if l.strip.start_with? "/*", "*", "//"
+               if l =~ JTools::PKG_DCL_REGEX # if package declaration found
+                  pkg_name = l.gsub JTools::EXTR_PKG, "" # extract path
+                  return pkg_name
+               end
+            rescue ArgumentError => e
+               puts "Error matching line '#{l}' In #{fname}. " + e.message
             end
          end
          puts "Warning: #{File.basename fname} has no or no valid package" +
