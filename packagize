@@ -20,7 +20,6 @@ module JTools
    # This tries to match allowed package names, which must not begin with an
    # uppercase letter or number
    PACKAGE_NAME = /^([a-z]\d*|(_\d*))+$/ # somehwat liberal naming standards
-
 end
 
 =begin
@@ -36,10 +35,10 @@ class Package
       @subpackages = Hash.new
       @files = Array.new
    end
-   def filecount
+   def file_count
       count = @files.size
       subpackages.each_value do |pack|
-         count += pack.filecount
+         count += pack.file_count
       end
       count
    end
@@ -74,7 +73,7 @@ class Package
       root += "/" if not root.end_with? "/" # add backslash for later concatenation
       if not caller[0] =~ /.*build_directory.*/
          puts "Building in #{root+@name}."
-         puts "Warning. No files in this package tree." if filecount == 0
+         puts "Warning. No files in this package tree." if file_count == 0
       end
       Dir.mkdir(root + @name) if not File.exist? root + @name # make root dir if not already present
       @files.each do |file|
@@ -111,7 +110,7 @@ class ClassCollector
    end
    # Parse the package name from a package declaration (only applies to java
    # files)
-   def parsePkg fname
+   def parse_pkg fname
       if File.extname(fname) == @extension
          lines = IO.readlines fname
          lines.each do |l|
@@ -151,7 +150,7 @@ class ClassCollector
                elsif not File.readable? fname
                   puts "#{fname} not readable.Skipping." if @verbose
                elsif File.file? fname and File.extname(fname) == @extension # if no directory
-                  pkg_info = parsePkg fname
+                  pkg_info = parse_pkg fname
                   @files[fname] = pkg_info if pkg_info
                end
             end
@@ -160,24 +159,27 @@ class ClassCollector
    end
 end
 
+=begin
+   Top level (Object) methods to run the tool
+=end
 def print_usage 
-   puts "Usage: packagize [-h] [-s source_dir] [-d dest_dir] [-v] [-r]"
+   puts "Usage: packagize [-h] [-v] [-r] [-s source_dir] [-d dest_dir]"
    puts "\tSource and destination default to the current working directory."
-   puts "\t-r search directory and all subdirectories"
-   puts "\t-v display verbose output."
+   puts "\t-r search directory and all subdirectories. Defaults to true."
+   puts "\t-v display verbose output. Defaults to false."
    puts "\t-h display this text."
 end
 
-if __FILE__ == $0
+def parse_args arguments
    # parse cl arguments and delete if found -> ARGV must be empty if correct
-   if ARGV.index "-h"
+   if arguments.index "-h"
       print_usage
       exit
    end
    search_dir = "."
-   search_flag_pos = ARGV.index "-s"
+   search_flag_pos = arguments.index "-s"
    if search_flag_pos
-      search_dir = ARGV[search_flag_pos + 1]
+      search_dir = arguments[search_flag_pos + 1]
       if not search_dir
          puts "Error. Path must follow -s flag." 
          exit
@@ -185,14 +187,14 @@ if __FILE__ == $0
          puts "Error. #{search_dir} is no directory."
          exit
       else 
-         ARGV.delete_at search_flag_pos + 1
-         ARGV.delete_at search_flag_pos
+         arguments.delete_at search_flag_pos + 1
+         arguments.delete_at search_flag_pos
       end
    end
    dest_dir = "."
-   dest_flag_pos = ARGV.index "-d"
+   dest_flag_pos = arguments.index "-d"
    if dest_flag_pos
-      dest_dir = ARGV[dest_flag_pos + 1]
+      dest_dir = arguments[dest_flag_pos + 1]
       if not dest_dir
          puts "Error. Path must follow -d flag." 
          exit
@@ -200,44 +202,60 @@ if __FILE__ == $0
          puts "Error. #{dest_dir} is no directory."
          exit
       else 
-         ARGV.delete_at dest_flag_pos + 1
-         ARGV.delete_at dest_flag_pos
+         arguments.delete_at dest_flag_pos + 1
+         arguments.delete_at dest_flag_pos
       end
    end
    recursive = false
-   if ARGV.index "-r"
+   if arguments.index "-r"
       recursive = true 
-      ARGV.delete_at ARGV.index "-r"
+      arguments.delete_at arguments.index "-r"
    end
    verbose = false
-   if ARGV.index "-v"
+   if arguments.index "-v"
       verbose = true
-      ARGV.delete_at ARGV.index "-v"
+      arguments.delete_at arguments.index "-v"
    end
-   if ARGV.empty?
-      c = ClassCollector.new search_dir, verbose
-      c.collect recursive
-      pkg_root = Package.new "src", verbose
-      c.files.each do |k,v|
-         parent = pkg_root
-         if v.empty?
-            parent.add_file k
-         else
-            while not v.empty?
-               subpkg_name = v.split(".").first
-               subpkg = (parent.subpackages[subpkg_name] or
-                         Package.new(subpkg_name, verbose))
-               parent.add_subpackage subpkg unless parent.subpackages.has_key? subpkg.name
-               parent = subpkg
-               v.slice! subpkg.name
-               if v.start_with? "."
-                  v = v[1,v.length]
-               end
+   if not arguments.empty?
+      puts "Excess arguments: #{arguments.join ', '}. Exiting."
+      print_usage
+   else
+      return {:recursive => recursive,
+              :verbose => verbose,
+              :dest_dir => dest_dir,
+              :search_dir => search_dir}
+   end
+end
+
+def build search_dir=".", dest_dir=".", verbose=false, recursive=true
+   c = ClassCollector.new search_dir, verbose
+   c.collect recursive
+   pkg_root = Package.new "src", verbose
+   c.files.each do |k,v|
+      parent = pkg_root
+      if v.empty?
+         parent.add_file k
+      else
+         while not v.empty?
+            subpkg_name = v.split(".").first
+            subpkg = (parent.subpackages[subpkg_name] or
+                      Package.new(subpkg_name, verbose))
+            parent.add_subpackage subpkg unless parent.subpackages.has_key? subpkg.name
+            parent = subpkg
+            v.slice! subpkg.name
+            if v.start_with? "."
+               v = v[1,v.length]
             end
-            subpkg.add_file k
          end
+         subpkg.add_file k
       end
-      pkg_root.build_directory File.absolute_path dest_dir
-   else puts "Excess arguments: #{ARGV.join ', '}. Exiting."
    end
+   pkg_root.build_directory File.absolute_path dest_dir
+end
+if __FILE__ == $0
+   arguments = parse_args ARGV
+   build arguments[:search_dir], arguments[:dest_dir],  arguments[:verbose],
+      arguments[:recursive]
+   Dir.chdir arguments[:dest_dir]
+   Dir.mkdir "bin" if not File.exists? "bin"
 end
