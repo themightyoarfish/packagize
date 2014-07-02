@@ -19,7 +19,7 @@ module JTools
    EXTR_PKG = /\s*package\s+|;\s*/
    # This tries to match allowed package names, which must not begin with an
    # uppercase letter or number
-   PACKAGE_NAME = /^([a-z]\d*|(_\d*))+$/ # somehwat liberal naming standards
+   PACKAGE_NAME = /^[a-z_]\w*$/ # somehwat liberal naming standards
 end
 
 =begin
@@ -49,7 +49,7 @@ class Package
       end
       if pack.name =~ JTools::PACKAGE_NAME
          @subpackages[pack.name] = pack # map name to package object
-      else puts "Invalid pacakge name #{pack.name}. skipping."
+      else puts "Invalid pacakge name '#{pack.name}'. Skipping."
       end
    end
    # add a file (not a Package) to this package. The file's package declaration
