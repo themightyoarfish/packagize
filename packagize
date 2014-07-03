@@ -261,7 +261,9 @@ def build search_dir=".", dest_dir=".", verbose=false, recursive=true
    Dir.chdir dest_dir
    Dir.mkdir "bin" if not File.exists? "bin"
    puts "Attempting compilation ..."
-   `javac -d bin -classpath $CLASSPATH:bin #{pkg_root.get_files.join ' '}`
+   cmd = "javac -d bin -classpath $CLASSPATH:bin #{pkg_root.get_files.map { |f| f.gsub /\s/, '\ '}.join ' '}"
+   puts cmd
+   `#{cmd}`
 end
 if __FILE__ == $0
    arguments = parse_args ARGV
