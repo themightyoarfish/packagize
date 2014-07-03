@@ -35,6 +35,9 @@ class Package
       @subpackages = Hash.new
       @files = Array.new
    end
+   def get_files
+      @files.dup.concat((@subpackages.values.map { |pack| pack.get_files }).flatten)
+   end
    def file_count
       count = @files.size
       subpackages.each_value do |pack|
@@ -72,13 +75,16 @@ class Package
    def build_directory root
       root += "/" if not root.end_with? "/" # add backslash for later concatenation
       if not caller[0] =~ /.*build_directory.*/
-         puts "Building in #{root+@name}."
+         puts "Building in #{root + @name}."
          puts "Warning. No files in this package tree." if file_count == 0
       end
       Dir.mkdir(root + @name) if not File.exist? root + @name # make root dir if not already present
       @files.each do |file|
          puts "Copying file #{File.basename file} to #{root + @name}." if @verbose
          begin
+            if @verbose and File.exists? root + @name
+               puts "File already present."
+            end
             cp file, root + @name 
          rescue ArgumentError # raised if files are identical
             puts "Warning: Can't copy #{File.basename file}. Source and destination are identical."
@@ -219,6 +225,7 @@ def parse_args arguments
    if not arguments.empty?
       puts "Excess arguments: #{arguments.join ', '}. Exiting."
       print_usage
+      exit
    else
       return {:recursive => recursive,
               :verbose => verbose,
@@ -251,11 +258,13 @@ def build search_dir=".", dest_dir=".", verbose=false, recursive=true
       end
    end
    pkg_root.build_directory File.absolute_path dest_dir
+   Dir.chdir dest_dir
+   Dir.mkdir "bin" if not File.exists? "bin"
+   puts "Attempting compilation ..."
+   `javac -d bin -classpath $CLASSPATH:bin #{pkg_root.get_files.join ' '}`
 end
 if __FILE__ == $0
    arguments = parse_args ARGV
    build arguments[:search_dir], arguments[:dest_dir],  arguments[:verbose],
       arguments[:recursive]
-   Dir.chdir arguments[:dest_dir]
-   Dir.mkdir "bin" if not File.exists? "bin"
 end
